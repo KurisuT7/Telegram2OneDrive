@@ -18,8 +18,8 @@ python -m twine check dist/*
 ```
 
 Tests must use synthetic file names, identifiers, command results, and file content. Never submit
-credentials, Telegram sessions, real chat or user IDs, OneDrive data, `rclone.conf`, server paths,
-logs, or production configuration.
+credentials, Telegram application IDs or hashes, Telegram sessions, real chat or user IDs,
+OneDrive data, `rclone.conf`, server paths, logs, or production configuration.
 
 ## Commits and changelog
 

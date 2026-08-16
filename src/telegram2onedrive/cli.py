@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import logging
 from collections.abc import Sequence
+from importlib.util import find_spec
 from pathlib import Path
 
 from telegram2onedrive import __version__
@@ -38,6 +39,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     for warning in settings.warnings():
         print(f"Warning: {warning}")
 
+    if settings.telegram_mtproto_enabled and find_spec("pyrogram") is None:
+        print(
+            "Configuration error: MTProto support is not installed; "
+            'install "telegram2onedrive[mtproto]"'
+        )
+        return 2
+
     try:
         result = asyncio.run(RcloneClient(settings).check())
     except (OSError, RcloneError) as exc:
@@ -54,5 +62,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("telegram").setLevel(logging.WARNING)
-    run_bot(settings)
+    if settings.telegram_mtproto_enabled:
+        from telegram2onedrive.mtproto import MTProtoError
+
+        try:
+            run_bot(settings)
+        except MTProtoError as exc:
+            print(f"Telegram MTProto startup failed: {exc}")
+            return 1
+    else:
+        run_bot(settings)
     return 0

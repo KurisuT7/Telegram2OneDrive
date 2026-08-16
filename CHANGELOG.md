@@ -6,6 +6,19 @@ User-visible changes are recorded here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- An optional Pyrogram MTProto fallback for files above the cloud Bot API's 20 MiB boundary, up to
+  the configured 2048 MiB project limit. Bot API polling, commands and small downloads remain
+  unchanged.
+- Persistent MTProto bot sessions outside the repository, with bot-identity verification,
+  restricted POSIX permissions and explicit protection against concurrent session use.
+
+### Security
+
+- Shared or publicly posted Telegram application credentials are explicitly unsupported; MTProto
+  sessions are treated as bot credentials and excluded from source, logs, and examples.
+
 ## [0.1.0] - 2026-08-16
 
 ### Added

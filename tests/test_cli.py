@@ -10,8 +10,22 @@ from telegram2onedrive.rclone import CheckResult, RcloneError
 def configured(allowed: str = "123") -> Settings:
     return Settings.from_mapping(
         {
-            "TELEGRAM_BOT_TOKEN": "synthetic-token",
+            "TELEGRAM_BOT_TOKEN": "1:test",
             "TELEGRAM_ALLOWED_USER_IDS": allowed,
+            "RCLONE_REMOTE": "onedrive",
+        }
+    )
+
+
+def configured_mtproto(tmp_path: Path) -> Settings:
+    return Settings.from_mapping(
+        {
+            "TELEGRAM_BOT_TOKEN": "1:test",
+            "TELEGRAM_ALLOWED_USER_IDS": "123",
+            "TELEGRAM_MTPROTO_ENABLED": "true",
+            "TELEGRAM_API_ID": "12345",
+            "TELEGRAM_API_HASH": "a" * 32,
+            "TELEGRAM_MTPROTO_SESSION_DIR": str(tmp_path / "session"),
             "RCLONE_REMOTE": "onedrive",
         }
     )
@@ -78,3 +92,47 @@ def test_run_starts_bot(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli, "run_bot", called.append)
     assert cli.main(["run"]) == 0
     assert len(called) == 1
+
+
+def test_mtproto_extra_is_required(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(cli.Settings, "load", lambda path: configured_mtproto(tmp_path))
+    monkeypatch.setattr(cli, "find_spec", lambda name: None)
+    assert cli.main(["check"]) == 2
+    assert "telegram2onedrive[mtproto]" in capsys.readouterr().out
+
+
+def test_run_starts_bot_with_mtproto_enabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    called: list[Settings] = []
+    FakeClient.outcome = CheckResult("rclone v1", "onedrive")
+    monkeypatch.setattr(cli.Settings, "load", lambda path: configured_mtproto(tmp_path))
+    monkeypatch.setattr(cli, "RcloneClient", FakeClient)
+    monkeypatch.setattr(cli, "find_spec", lambda name: object())
+    monkeypatch.setattr(cli, "run_bot", called.append)
+    assert cli.main(["run"]) == 0
+    assert len(called) == 1
+
+
+def test_mtproto_startup_failure_is_reported_without_traceback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from telegram2onedrive.mtproto import MTProtoError
+
+    FakeClient.outcome = CheckResult("rclone v1", "onedrive")
+    monkeypatch.setattr(cli.Settings, "load", lambda path: configured_mtproto(tmp_path))
+    monkeypatch.setattr(cli, "RcloneClient", FakeClient)
+    monkeypatch.setattr(cli, "find_spec", lambda name: object())
+
+    def fail(settings: Settings) -> None:
+        raise MTProtoError("synthetic safe failure")
+
+    monkeypatch.setattr(cli, "run_bot", fail)
+    assert cli.main(["run"]) == 1
+    assert "synthetic safe failure" in capsys.readouterr().out

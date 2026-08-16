@@ -6,7 +6,7 @@ from typing import Any
 
 from telegram import Chat
 
-from telegram2onedrive.bot import Attachment, BotService, extract_attachment
+from telegram2onedrive.bot import Attachment, BotService, build_application, extract_attachment
 from telegram2onedrive.config import Settings
 from telegram2onedrive.rclone import (
     CheckResult,
@@ -19,6 +19,7 @@ from telegram2onedrive.rclone import (
 def message(**values: Any) -> Any:
     defaults = {
         "date": datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
+        "message_id": 789,
         "document": None,
         "photo": None,
         "video": None,
@@ -99,9 +100,30 @@ class FakeRclone:
         return self.upload_result
 
 
+class FakeMTProto:
+    def __init__(self) -> None:
+        self.started = 0
+        self.stopped = 0
+        self.download_calls: list[tuple[int, int, Path]] = []
+        self.failure: Exception | None = None
+
+    async def start(self) -> None:
+        self.started += 1
+
+    async def stop(self) -> None:
+        self.stopped += 1
+
+    async def download(self, chat_id: int, message_id: int, destination: Path) -> Path:
+        self.download_calls.append((chat_id, message_id, destination))
+        if self.failure is not None:
+            raise self.failure
+        destination.write_bytes(b"mtproto")
+        return destination
+
+
 def configured(**overrides: str) -> Settings:
     values = {
-        "TELEGRAM_BOT_TOKEN": "synthetic-token",
+        "TELEGRAM_BOT_TOKEN": "1:test",
         "TELEGRAM_ALLOWED_USER_IDS": "123",
         "RCLONE_REMOTE": "onedrive",
     }
@@ -138,6 +160,28 @@ def test_group_can_be_explicitly_enabled() -> None:
         FakeRclone(),  # type: ignore[arg-type]
     )
     assert service._authorized(update(FakeMessage(), chat_type=Chat.GROUP)) is True
+
+
+def test_mtproto_lifecycle_is_bound_to_the_bot_application() -> None:
+    mtproto = FakeMTProto()
+    service = BotService(configured(), FakeRclone(), mtproto)  # type: ignore[arg-type]
+    asyncio.run(service.initialize(None))  # type: ignore[arg-type]
+    asyncio.run(service.shutdown(None))  # type: ignore[arg-type]
+    assert (mtproto.started, mtproto.stopped) == (1, 1)
+
+
+def test_build_application_registers_mtproto_lifecycle(tmp_path: Path) -> None:
+    mtproto = FakeMTProto()
+    settings = configured(
+        TELEGRAM_MTPROTO_ENABLED="true",
+        TELEGRAM_API_ID="12345",
+        TELEGRAM_API_HASH="a" * 32,
+        TELEGRAM_MTPROTO_SESSION_DIR=str(tmp_path / "session"),
+        MAX_FILE_MIB="2048",
+    )
+    application = build_application(settings, FakeRclone(), mtproto)  # type: ignore[arg-type]
+    assert application.post_init is not None
+    assert application.post_shutdown is not None
 
 
 def test_start_and_whoami_messages() -> None:
@@ -265,6 +309,55 @@ def test_handle_file_cloud_download_is_removed(tmp_path: Path) -> None:
     uploaded_path = rclone.upload_calls[0][0]
     assert uploaded_path.exists() is False
     assert telegram_file.custom_paths[0] is not None
+
+
+def test_handle_large_file_uses_mtproto_and_removes_download(tmp_path: Path) -> None:
+    rclone = FakeRclone()
+    mtproto = FakeMTProto()
+    service = BotService(
+        configured(
+            TELEGRAM_MTPROTO_ENABLED="true",
+            TELEGRAM_API_ID="12345",
+            TELEGRAM_API_HASH="a" * 32,
+            TELEGRAM_MTPROTO_SESSION_DIR=str(tmp_path / "session"),
+            TRANSFER_TMP_DIR=str(tmp_path / "downloads"),
+            MAX_FILE_MIB="2048",
+        ),
+        rclone,  # type: ignore[arg-type]
+        mtproto,
+    )
+    telegram_file = FakeTelegramFile()
+    media = FakeMedia(telegram_file)
+    media.file_size = 21 * 1024 * 1024
+    request = FakeMessage(document=media)
+    asyncio.run(service.handle_file(update(request), None))
+    assert len(mtproto.download_calls) == 1
+    assert mtproto.download_calls[0][:2] == (456, 789)
+    assert telegram_file.custom_paths == []
+    assert rclone.upload_calls
+    assert rclone.upload_calls[0][0].exists() is False
+    assert "MTProto" in request.replies[0]
+
+
+def test_handle_large_file_reports_mtproto_failure(tmp_path: Path) -> None:
+    mtproto = FakeMTProto()
+    mtproto.failure = RuntimeError("synthetic failure")
+    service = BotService(
+        configured(
+            TELEGRAM_MTPROTO_ENABLED="true",
+            TELEGRAM_API_ID="12345",
+            TELEGRAM_API_HASH="a" * 32,
+            TELEGRAM_MTPROTO_SESSION_DIR=str(tmp_path / "session"),
+            MAX_FILE_MIB="2048",
+        ),
+        FakeRclone(),  # type: ignore[arg-type]
+        mtproto,
+    )
+    media = FakeMedia(FakeTelegramFile())
+    media.file_size = 21 * 1024 * 1024
+    request = FakeMessage(document=media)
+    asyncio.run(service.handle_file(update(request), None))
+    assert "Transfer failed" in request.statuses[0].edits[-1]
 
 
 def test_handle_file_local_mode_preserves_server_file(tmp_path: Path) -> None:

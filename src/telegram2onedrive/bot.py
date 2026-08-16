@@ -4,22 +4,31 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import tempfile
-import time
-from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from telegram import Chat, Message, Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from telegram2onedrive.config import Settings
-from telegram2onedrive.files import classify_file, sanitize_filename
-from telegram2onedrive.rclone import DestinationExists, RcloneClient, RcloneError, UploadResult
+from telegram2onedrive.rclone import RcloneClient, RcloneError
+from telegram2onedrive.transfer import TransferService, authorized
 
 logger = logging.getLogger(__name__)
+
+CLOUD_BOT_API_FILE_LIMIT = 20 * 1024 * 1024
+
+
+class LargeFileDownloader(Protocol):
+    """Lifecycle and download surface required from an MTProto client."""
+
+    async def start(self) -> None: ...
+
+    async def stop(self) -> None: ...
+
+    async def download(self, chat_id: int, message_id: int, destination: Path) -> Path: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,17 +109,34 @@ def extract_attachment(message: Message) -> Attachment | None:
 
 
 class BotService:
-    def __init__(self, settings: Settings, rclone: RcloneClient) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        rclone: RcloneClient,
+        mtproto: LargeFileDownloader | None = None,
+    ) -> None:
         self.settings = settings
         self.rclone = rclone
+        self.mtproto = mtproto
+        self.transfer = TransferService(settings, rclone)
         self._transfer_lock = asyncio.Lock()
+
+    async def initialize(self, application: Application[Any, Any, Any, Any, Any, Any]) -> None:
+        del application
+        if self.mtproto is not None:
+            await self.mtproto.start()
+
+    async def shutdown(self, application: Application[Any, Any, Any, Any, Any, Any]) -> None:
+        del application
+        if self.mtproto is not None:
+            await self.mtproto.stop()
 
     def _authorized(self, update: Update) -> bool:
         user = update.effective_user
         chat = update.effective_chat
-        if user is None or chat is None or user.id not in self.settings.allowed_user_ids:
+        if user is None or chat is None:
             return False
-        return self.settings.allow_group_chats or chat.type == Chat.PRIVATE
+        return authorized(self.settings, user.id, private_chat=chat.type == Chat.PRIVATE)
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         del context
@@ -150,52 +176,10 @@ class BotService:
             f"OneDrive is reachable through {result.backend} ({result.version})."
         )
 
-    async def _upload_with_heartbeat(
-        self, status_message: Message, source: Path, category: str, filename: str
-    ) -> UploadResult:
-        task = asyncio.create_task(self.rclone.upload(source, category, filename))
-        started = time.monotonic()
-        try:
-            while True:
-                done, _ = await asyncio.wait({task}, timeout=30)
-                if done:
-                    return await task
-                elapsed = int(time.monotonic() - started)
-                try:
-                    await status_message.edit_text(
-                        f"Uploading to OneDrive... {elapsed}s elapsed. "
-                        "rclone may be refreshing authorization."
-                    )
-                except Exception:
-                    logger.warning("Could not refresh the Telegram status message", exc_info=True)
-        finally:
-            if not task.done():
-                task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await task
-
     async def _process_path(
         self, status_message: Message, attachment: Attachment, source: Path
     ) -> None:
-        if not source.is_file() or source.stat().st_size > self.settings.max_file_bytes:
-            await status_message.edit_text(
-                "The downloaded file is missing or exceeds MAX_FILE_MIB."
-            )
-            return
-        filename = sanitize_filename(attachment.filename)
-        category = classify_file(attachment.mime_type, filename)
-        await status_message.edit_text(f"Uploading {filename} to the {category} category...")
-        try:
-            result = await self._upload_with_heartbeat(status_message, source, category, filename)
-        except DestinationExists:
-            await status_message.edit_text("A file with the same name already exists.")
-            return
-        except (OSError, RcloneError):
-            logger.exception("OneDrive upload failed")
-            await status_message.edit_text("Upload failed. Inspect the service logs.")
-            return
-        rename_note = " The destination was renamed to avoid a conflict." if result.renamed else ""
-        await status_message.edit_text(f"Uploaded {filename} to {category}.{rename_note}")
+        await self.transfer.process_path(status_message.edit_text, attachment, source)
 
     async def handle_file(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         del context
@@ -208,20 +192,35 @@ class BotService:
         attachment = extract_attachment(message)
         if attachment is None:
             return
-        if attachment.file_size is None:
-            await message.reply_text(
-                "Telegram did not provide a file size; the transfer was rejected."
-            )
-            return
-        if attachment.file_size > self.settings.max_file_bytes:
-            await message.reply_text(
-                f"File exceeds the configured {self.settings.max_file_mib} MiB limit."
-            )
+        rejection = self.transfer.rejection_reason(attachment)
+        if rejection is not None:
+            await message.reply_text(rejection)
             return
 
         async with self._transfer_lock:
-            status_message = await message.reply_text("Preparing download...")
+            use_mtproto = (
+                not self.settings.telegram_local_mode
+                and attachment.file_size is not None
+                and attachment.file_size > CLOUD_BOT_API_FILE_LIMIT
+            )
+            status_message = await message.reply_text(
+                "Preparing MTProto download..." if use_mtproto else "Preparing download..."
+            )
             try:
+                if use_mtproto:
+                    mtproto = self.mtproto
+                    chat = update.effective_chat
+                    if mtproto is None or chat is None:
+                        raise RuntimeError("MTProto downloader is unavailable")
+
+                    async def download_large(destination: Path) -> object:
+                        return await mtproto.download(chat.id, message.message_id, destination)
+
+                    await self.transfer.download_to_temporary_file(
+                        status_message.edit_text, attachment, download_large
+                    )
+                    return
+
                 telegram_file = await attachment.media.get_file()
                 if self.settings.telegram_local_mode:
                     downloaded = await telegram_file.download_to_drive()
@@ -230,22 +229,22 @@ class BotService:
                     )
                     return
 
-                temp_root = self.settings.transfer_tmp_dir
-                if temp_root is not None:
-                    temp_root.mkdir(parents=True, exist_ok=True, mode=0o700)
-                with tempfile.TemporaryDirectory(
-                    prefix="telegram2onedrive-", dir=temp_root
-                ) as temp_directory:
-                    destination = Path(temp_directory) / sanitize_filename(attachment.filename)
+                async def download(destination: Path) -> object:
                     await telegram_file.download_to_drive(custom_path=destination)
-                    await self._process_path(status_message, attachment, destination)
+                    return destination
+
+                await self.transfer.download_to_temporary_file(
+                    status_message.edit_text, attachment, download
+                )
             except Exception:
                 logger.exception("Telegram download or transfer failed")
                 await status_message.edit_text("Transfer failed. Inspect the service logs.")
 
 
 def build_application(
-    settings: Settings, rclone: RcloneClient | None = None
+    settings: Settings,
+    rclone: RcloneClient | None = None,
+    mtproto: LargeFileDownloader | None = None,
 ) -> Application[Any, Any, Any, Any, Any, Any]:
     builder = Application.builder().token(settings.telegram_bot_token)
     if settings.telegram_local_mode:
@@ -254,8 +253,14 @@ def build_application(
             .base_file_url(settings.telegram_base_file_url)
             .local_mode(True)
         )
+    if settings.telegram_mtproto_enabled and mtproto is None:
+        from telegram2onedrive.mtproto import MTProtoDownloader
+
+        mtproto = MTProtoDownloader(settings)
+    service = BotService(settings, rclone or RcloneClient(settings), mtproto)
+    if mtproto is not None:
+        builder = builder.post_init(service.initialize).post_shutdown(service.shutdown)
     application = builder.build()
-    service = BotService(settings, rclone or RcloneClient(settings))
     application.add_handler(CommandHandler("start", service.start))
     application.add_handler(CommandHandler("whoami", service.whoami))
     application.add_handler(CommandHandler("status", service.status))

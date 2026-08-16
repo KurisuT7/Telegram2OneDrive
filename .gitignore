@@ -16,6 +16,8 @@ htmlcov/
 .env
 *.session
 *.session-journal
+*.session-shm
+*.session-wal
 rclone.conf
 data/
 tmp/

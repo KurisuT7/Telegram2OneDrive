@@ -5,8 +5,9 @@
 Telegram2OneDrive 只接收明确授权的 Telegram 用户发送的文件，按媒体类型分类后，通过 rclone
 转存到 OneDrive。
 
-默认使用 Telegram 云端 Bot API，单文件下载上限为 20 MiB。若 Bot 与 Local Bot API Server
-共享文件系统，可启用可选适配器处理更大的文件。
+默认使用 Telegram 云端 Bot API，单文件下载上限为 20 MiB。可选的 Local Bot API Server 或
+Pyrogram MTProto 大文件回退可以处理更大的下载，同时保持 Bot API 更新和 OneDrive 上传链路
+不变。
 
 ## 前置条件
 
@@ -14,6 +15,9 @@ Telegram2OneDrive 只接收明确授权的 Telegram 用户发送的文件，按�
 - 通过 [@BotFather](https://t.me/BotFather) 创建的 Telegram Bot
 - 已配置 OneDrive remote 的 [rclone](https://rclone.org/downloads/)
 - 能访问 Telegram、Microsoft 登录、Microsoft Graph 和 OneDrive 的主机
+
+MTProto 回退还要求在 [my.telegram.org/apps](https://my.telegram.org/apps) 创建自己的
+Telegram Application。它只使用 BotFather Bot 身份，不需要个人账号 Session。
 
 程序不直接接收 OneDrive Token。OAuth 授权、Token 刷新、大文件上传及可写凭据文件均由
 rclone 管理。
@@ -88,6 +92,20 @@ Telegram2OneDrive/
 
 发送 `/status` 可从 Telegram 侧检查当前 OneDrive remote 是否可访问。
 
+## 可选大文件路径
+
+默认云端 Bot API 不需要额外 Telegram 配置。处理更大的文件时，从以下两个已记录的方案中选择
+一个：
+
+- [Local Bot API Server](docs/local-bot-api.zh-CN.md)：继续使用 HTTP Bot API，但要求与本地
+ 服务器共享文件系统。
+- [MTProto 大文件回退](docs/mtproto.zh-CN.md)：保留 Bot API 轮询与小文件下载，只把超过
+  20 MiB 的文件交给 Pyrogram。需要自己的 `api_id` 和 `api_hash`，并在仓库外保存受限的 Bot
+  Session。
+
+Local Bot API 模式与 MTProto 回退互斥。不得让多个进程共用同一个 Bot Token 或 MTProto
+Session 数据库。
+
 ## 配置项
 
 | 变量 | 默认值 | 用途 |
@@ -96,19 +114,29 @@ Telegram2OneDrive/
 | `TELEGRAM_ALLOWED_USER_IDS` | 空 | 逗号分隔的正整数 User ID |
 | `TELEGRAM_ALLOW_GROUP_CHATS` | `false` | 允许已授权用户从群组转存 |
 | `MAX_FILE_MIB` | `20` | 下载前拒绝更大的文件 |
+| `TELEGRAM_LOCAL_MODE` | `false` | 使用 Local Bot API Server |
+| `TELEGRAM_BASE_URL` | 空 | 以 `/bot` 结尾的 Local Bot API 方法地址 |
+| `TELEGRAM_BASE_FILE_URL` | 空 | 以 `/file/bot` 结尾的 Local Bot API 文件地址 |
+| `TELEGRAM_MTPROTO_ENABLED` | `false` | 只对超过 20 MiB 的文件启用 MTProto |
+| `TELEGRAM_API_ID` | 空 | MTProto 使用的自有数字 Telegram Application ID |
+| `TELEGRAM_API_HASH` | 空 | MTProto 使用的自有 32 位 Application Hash |
+| `TELEGRAM_MTPROTO_SESSION_DIR` | 空 | 仓库外必填的 MTProto Session 绝对目录 |
+| `TELEGRAM_MTPROTO_SESSION_NAME` | `telegram2onedrive` | 安全的 Pyrogram Session 基础名称 |
 | `RCLONE_REMOTE` | `onedrive` | 已配置的 OneDrive remote 名称 |
 | `RCLONE_CONFIG` | rclone 自动查找 | 可选的配置文件绝对路径 |
 | `ONEDRIVE_BASE_PATH` | `Telegram2OneDrive` | OneDrive 根目录下的目标路径 |
 | `DUPLICATE_POLICY` | `rename` | `rename`、`replace` 或 `fail` |
 | `RCLONE_TIMEOUT_SECONDS` | `3600` | 单次命令超时，范围 60–86400 秒 |
-| `TRANSFER_TMP_DIR` | 系统临时目录 | 可选的云端 Bot API 下载目录 |
+| `TRANSFER_TMP_DIR` | 系统临时目录 | 可选的云端 Bot API 与 MTProto 下载目录 |
 
-Local Bot API 配置见 [docs/local-bot-api.zh-CN.md](docs/local-bot-api.zh-CN.md)。
+传输专用配置见 [docs/local-bot-api.zh-CN.md](docs/local-bot-api.zh-CN.md) 和
+[docs/mtproto.zh-CN.md](docs/mtproto.zh-CN.md)。
 
 ## 运行与失败行为
 
 - 文件转存按顺序执行，避免两个更新同时选择同一个重命名目标。
-- 云端 Bot API 下载使用独立临时目录，无论成功或失败都会删除。
+- 云端 Bot API 和 MTProto 下载使用独立临时目录，无论成功或失败都会删除；MTProto Session
+  数据库保留在单独配置的目录中。
 - Local Bot API 文件属于该服务，Telegram2OneDrive 不会删除。
 - 上传状态每 30 秒刷新一次；rclone 可能在传输前等待 Microsoft 授权刷新。
 - `rename` 在扩展名前添加 ` (n)`，`replace` 允许覆盖，`fail` 遇到 OneDrive
@@ -121,8 +149,9 @@ Local Bot API 配置见 [docs/local-bot-api.zh-CN.md](docs/local-bot-api.zh-CN.m
 Telegram 会接收原始消息和文件；运行主机会临时接收云端 Bot API 文件；rclone 会把文件和目标
 名称发送给 Microsoft OneDrive。程序不包含遥测。
 
-请保护 Bot Token、rclone 配置、下载文件、日志和进程环境。建议使用独立服务账号、私聊 Bot
-以及明确的用户白名单。默认关闭群组转存，因为其他群成员可能看到文件名和状态消息。
+请保护 Bot Token、MTProto Application 凭据及 Session、rclone 配置、下载文件、日志和进程
+环境。建议使用独立服务账号、私聊 Bot 以及明确的用户白名单。默认关闭群组转存，因为其他群
+成员可能看到文件名和状态消息。不得使用从公开频道或其他应用复制的 API ID/Hash 配置 MTProto。
 
 安全问题请通过 [GitHub 私密漏洞报告](SECURITY.md)提交。
 
@@ -131,7 +160,10 @@ Telegram 会接收原始消息和文件；运行主机会临时接收云端 Bot 
 - 云端 Bot API 无法下载超过 20 MiB 的文件。
 - Local Bot API 适配器要求共享文件系统；GitHub Actions 未做端到端服务器测试，但配置、URL、
   本地路径和大小行为有单元测试覆盖。
-- 仅支持轮询，不支持 Webhook 和多个 Bot 实例。
+- 本项目把 MTProto 回退的单文件限制为 2048 MiB，GitHub Actions 不会连接 Telegram；Bot
+  身份核验、生命周期、路由、清理和失败行为有单元测试覆盖。该实现参考了生产中运行的 Pyrogram
+  架构，但不构成对所有 Telegram 环境的兼容保证。
+- Bot API 使用轮询；不支持 Webhook，也不支持多个实例共用 Bot 或 Session。
 - 外部 OneDrive 写入无法纳入同一个事务；`rename` 和 `fail` 使用 `--immutable`，避免竞争时静默覆盖。
 - 仍受 OneDrive 路径和文件大小限制；不受 OneDrive 支持的字符由 rclone 映射。
 
