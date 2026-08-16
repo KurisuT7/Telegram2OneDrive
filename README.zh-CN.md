@@ -2,7 +2,8 @@
 
 [English](README.md)
 
-把文件发送给 Telegram Bot，程序会自动分类并上传到 OneDrive：
+把发给 Telegram Bot 的文件自动分类并上传到 OneDrive。Bot 默认只接受白名单用户的私聊文件，
+适合部署在长期运行的 Linux 服务器上。
 
 ```text
 Telegram2OneDrive/
@@ -14,297 +15,148 @@ Telegram2OneDrive/
 └── Other/
 ```
 
-默认模式支持不超过 20 MiB 的文件。启用 MTProto 后，同一个 Bot 可以处理不超过 2048 MiB 的
-文件。下面是一套面向 Ubuntu 24.04 和 Debian 12 服务器的完整安装流程，从空服务器开始即可。
+| 下载方式 | 单文件上限 | 适用场景 |
+| --- | ---: | --- |
+| Telegram 云端 Bot API | 20 MiB | 默认模式，无额外 Telegram 凭据 |
+| MTProto | 2048 MiB | 需要传大文件，推荐方案 |
+| Local Bot API Server | 由本地服务决定 | 已经维护官方本地 API 服务的高级部署 |
 
-## 开始前准备
+MTProto 只接管大于 20 MiB 的文件下载；Bot 命令、小文件下载、分类和 OneDrive 上传仍使用原来的
+流程。
 
-你需要：
+## 快速开始（Docker Compose）
 
-- 一台能访问 Telegram、Microsoft 登录和 OneDrive 的 Linux 服务器；
-- 一个可以使用 `sudo` 的 Linux 用户；
-- 一台带浏览器的本地电脑，用来登录 Microsoft 和 Telegram；
-- 一个 Telegram 账号和一个 OneDrive 账号。
+需要一台能访问 Telegram 和 Microsoft OneDrive 的 Linux 服务器，并已安装
+[Docker Engine 和 Compose 插件](https://docs.docker.com/engine/install/)。开始前准备好：
 
-如果只传 20 MiB 以内的文件，可以跳过第 2 步。其余步骤不变。
+- 在 [@BotFather](https://t.me/BotFather) 创建 Bot 后得到的 Token；
+- 如果要传输大于 20 MiB 的文件，从 [my.telegram.org](https://my.telegram.org) 的
+  `API development tools` 获取 `api_id` 和 `api_hash`。
 
-## 1. 创建 Telegram Bot
-
-1. 在 Telegram 中打开 [@BotFather](https://t.me/BotFather)。
-2. 发送 `/newbot`。
-3. 按提示输入 Bot 的显示名称，例如 `My OneDrive Bot`。
-4. 再输入一个以 `bot` 结尾的用户名，例如 `my_onedrive_upload_bot`。
-5. BotFather 会返回一段 Token。先把它保存在安全的位置，稍后要填入 `.env`。
-
-## 2. 获取 MTProto 的 API ID 和 Hash
-
-只有需要传输大于 20 MiB 的文件时才做这一步。
-
-1. 确认手机或电脑上已经登录 Telegram 官方客户端。
-2. 在浏览器打开 [my.telegram.org](https://my.telegram.org)。
-3. 输入 Telegram 账号的手机号码并继续。
-4. 验证码会发到 Telegram 客户端中，把验证码填回网页。
-5. 点击 `API development tools`。
-6. 填写表单：`App title` 可以写 `Telegram2OneDrive`；`Short name` 可以写
-   `telegram2onedrive`；`URL` 允许留空时直接留空，否则填写本仓库地址；`Platform` 选择
-   `Desktop` 或 `Other`；`Description` 可以写 `Telegram file transfer to OneDrive`。
-7. 提交表单后记录页面显示的 `api_id` 和 `api_hash`，稍后填入 `.env`。
-
-## 3. 登录服务器并安装基础软件
-
-在本地电脑打开终端。将下面的用户名和服务器地址换成实际值：
+### 1. 下载并填写配置
 
 ```bash
-ssh -L 53682:127.0.0.1:53682 <Linux用户名>@<服务器地址>
-```
-
-这个 SSH 连接同时建立了一个临时通道，后面可以在本地浏览器完成 OneDrive 登录。保持该终端
-连接，不要提前关闭。
-
-在服务器中逐行运行：
-
-```bash
-sudo apt update
-sudo apt install -y git python3 python3-venv curl nano
-python3 --version
-sudo -v
-curl https://rclone.org/install.sh | sudo bash
-rclone version
-```
-
-`python3 --version` 应显示 3.11、3.12 或 3.13。Ubuntu 24.04 和 Debian 12 的默认 Python
-版本符合要求。这里使用的是 [rclone 官方 Linux 安装方法](https://rclone.org/install/)。
-
-## 4. 连接 OneDrive
-
-在服务器中运行：
-
-```bash
-rclone config
-```
-
-remote 是 rclone 保存的一份网盘连接配置，不是另一台服务器。这里把它命名为 `onedrive`，后续
-命令就可以用 `onedrive:` 访问网盘。
-
-按照下面的顺序回答。rclone 不同版本显示的序号可能不同，所以请看选项名称，不要只看序号。
-
-1. 输入 `n`，新建一个 remote。
-2. 名称输入 `onedrive`。
-3. 存储类型选择 `Microsoft OneDrive`，也可以直接输入 `onedrive`。
-4. `client_id` 直接按回车，留空。
-5. `client_secret` 直接按回车，留空。
-6. 如果询问 OneDrive 区域，普通国际版选择 `Microsoft Cloud Global`；其他版本按实际区域选择。
-7. `Edit advanced config?` 输入 `n`。
-8. `Use web browser to automatically authenticate rclone?` 输入 `y`。
-9. 如果浏览器没有自动打开，把终端中以 `http://127.0.0.1:53682/` 开头的完整地址复制到本地
-   浏览器。这一步能工作是因为第 3 步建立了 SSH 通道。
-10. 在浏览器登录 Microsoft 账号并同意授权，然后回到服务器终端。
-11. 普通个人版或企业版 OneDrive 选择 `OneDrive Personal or Business`。
-12. 如果列出多个网盘，选择要保存文件的那个。
-13. 看到确认信息后输入 `y`。保存 remote 时再次输入 `y`。
-14. 回到主菜单后输入 `q` 退出。
-
-这个无桌面服务器的登录方法与 [rclone 官方远程配置说明](https://rclone.org/remote_setup/)
-一致。
-
-检查 OneDrive 是否连接成功：
-
-```bash
-rclone lsd onedrive:
-```
-
-命令能正常结束并列出目录，或者网盘为空且没有报错，就表示配置成功。若失败，重新运行
-`rclone config` 检查 remote 名称和 Microsoft 授权。
-
-## 5. 下载并安装 Telegram2OneDrive
-
-继续在服务器中逐行运行：
-
-```bash
-cd ~
 git clone https://github.com/KurisuT7/Telegram2OneDrive.git
 cd Telegram2OneDrive
-python3 -m venv .venv
-.venv/bin/python -m pip install --upgrade pip
-.venv/bin/python -m pip install ".[mtproto]"
 cp .env.example .env
 chmod 600 .env
-nano .env
 ```
 
-在打开的 `.env` 中找到以下项目，只替换等号右边的内容，不要添加引号，也不要重复新增同名行：
+编辑 `.env`。需要大文件支持时填写：
 
 ```dotenv
-TELEGRAM_BOT_TOKEN=在这里填写BotFather返回的Token
+TELEGRAM_BOT_TOKEN=BotFather返回的Token
 TELEGRAM_ALLOWED_USER_IDS=
 
 TELEGRAM_MTPROTO_ENABLED=true
-TELEGRAM_API_ID=在这里填写api_id
-TELEGRAM_API_HASH=在这里填写api_hash
+TELEGRAM_API_ID=你的api_id
+TELEGRAM_API_HASH=你的api_hash
 ```
 
-如果只传 20 MiB 以内的文件，把 `TELEGRAM_MTPROTO_ENABLED` 保持为 `false`，并让
-`TELEGRAM_API_ID` 和 `TELEGRAM_API_HASH` 留空。其他配置暂时不需要修改。
+只传 20 MiB 以内的文件时，保持 `TELEGRAM_MTPROTO_ENABLED=false`，API ID 和 Hash 留空即可。
+其余配置先保留默认值。
 
-在 nano 中按 `Ctrl+O` 保存，按回车确认文件名，再按 `Ctrl+X` 退出。
+### 2. 连接 OneDrive
 
-## 6. 第一次启动并锁定使用者
-
-先检查配置和 OneDrive：
+先构建镜像，再在容器中运行 rclone 的配置向导：
 
 ```bash
-.venv/bin/telegram2onedrive check
+docker compose build
+docker compose run --rm --entrypoint rclone bot config
 ```
 
-看到 `OneDrive check passed` 表示检查通过。然后启动 Bot：
+在向导中创建一个名为 `onedrive` 的 Microsoft OneDrive remote，并完成浏览器授权。无桌面服务器
+可参考 rclone 的 [OneDrive 配置](https://rclone.org/onedrive/)和
+[Remote Setup](https://rclone.org/remote_setup/)文档。完成后验证：
 
 ```bash
-.venv/bin/telegram2onedrive run
+docker compose run --rm --entrypoint rclone bot lsd onedrive:
+docker compose run --rm bot check
 ```
 
-接下来：
+第一条命令应能列出 OneDrive 根目录，第二条应显示 `OneDrive check passed`。首次配置时出现白名单
+为空的 Warning 属于正常情况。
 
-1. 在 Telegram 中打开刚创建的 Bot，点击 `START` 或发送 `/start`。
-2. 发送 `/whoami`。
-3. Bot 会回复 `User ID: 一串数字`。只复制这串数字。
-4. 回到服务器终端，按 `Ctrl+C` 停止程序。
-5. 重新编辑配置：
+### 3. 启动并设置白名单
 
-   ```bash
-   nano .env
-   ```
+```bash
+docker compose up -d
+docker compose logs -f
+```
 
-6. 把数字填到 `TELEGRAM_ALLOWED_USER_IDS=` 后面，例如：
+私聊 Bot 并发送 `/whoami`，把返回的 `User ID` 写入 `.env`：
 
-   ```dotenv
-   TELEGRAM_ALLOWED_USER_IDS=123456789
-   ```
+```dotenv
+TELEGRAM_ALLOWED_USER_IDS=123456789
+```
 
-   允许多个账号时用英文逗号分隔，例如 `123456789,987654321`。
-7. 保存并退出 nano，再检查一次：
+多个 ID 用英文逗号分隔。重新创建容器使配置生效：
 
-   ```bash
-   .venv/bin/telegram2onedrive check
-   .venv/bin/telegram2onedrive run
-   ```
+```bash
+docker compose up -d --force-recreate
+```
 
-现在向 Bot 发送一个小文件。看到 `Uploaded ...` 后，再到 OneDrive 的
-`Telegram2OneDrive` 文件夹确认文件。如果启用了 MTProto，可以再发送一个大于 20 MiB 的文件
+向 Bot 发送一个小文件。Bot 显示 `Uploaded ...`，并且文件出现在 OneDrive 的
+`Telegram2OneDrive` 目录中，即表示部署完成。启用了 MTProto 时，再发送一个大于 20 MiB 的文件
 验证大文件路径。
 
-## 7. 设置开机自动运行
-
-手动测试成功后，先按 `Ctrl+C` 停止程序，再运行：
+## 日常操作
 
 ```bash
-mkdir -p ~/.config/systemd/user
-cp deploy/telegram2onedrive.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now telegram2onedrive
-sudo loginctl enable-linger "$USER"
-systemctl --user status telegram2onedrive
-```
+# 查看状态和日志
+docker compose ps
+docker compose logs -f
 
-看到 `Active: active (running)` 就表示服务已经运行。按 `q` 退出状态页面。
-
-这个服务文件默认项目位于 `~/Telegram2OneDrive`。如果克隆到了其他目录，需要同步修改服务文件
-中的 `WorkingDirectory` 和 `ExecStart`。
-
-常用管理命令：
-
-```bash
-# 查看实时日志；按 Ctrl+C 退出
-journalctl --user -u telegram2onedrive -f
-
-# 重启
-systemctl --user restart telegram2onedrive
-
-# 停止
-systemctl --user stop telegram2onedrive
-
-# 再次启动
-systemctl --user start telegram2onedrive
-```
-
-## 8. 以后如何更新
-
-```bash
-cd ~/Telegram2OneDrive
+# 更新代码并重建
 git pull --ff-only
-.venv/bin/python -m pip install ".[mtproto]"
-systemctl --user restart telegram2onedrive
-systemctl --user status telegram2onedrive
+docker compose up -d --build
+
+# 停止并移除容器
+docker compose down
 ```
 
-## 常见问题
+rclone 配置和 MTProto Session 分别保存在 Docker 的 `rclone-config` 与 `telegram-state` 持久卷
+中，重建容器不会丢失。不要运行 `docker compose down -v`，除非确定要同时删除 OneDrive 授权和
+MTProto Session。
 
-### `python3` 版本低于 3.11
+不使用 Docker 时，参照[原生 Linux 安装](docs/native-linux.zh-CN.md)。项目保留该方式用于已有
+Python/rclone 环境或需要 systemd 直接管理进程的部署。
 
-不要继续安装。建议换用 Ubuntu 24.04 或 Debian 12，或者先通过发行版的正规方式安装
-Python 3.11–3.13。
+## 常用配置
 
-### `OneDrive check failed`
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `TELEGRAM_BOT_TOKEN` | 无 | BotFather Token，必填 |
+| `TELEGRAM_ALLOWED_USER_IDS` | 空 | 允许使用 Bot 的数字 User ID，多个 ID 用逗号分隔 |
+| `TELEGRAM_ALLOW_GROUP_CHATS` | `false` | 是否允许白名单用户从群组上传 |
+| `TELEGRAM_MTPROTO_ENABLED` | `false` | 为大于 20 MiB 的文件启用 MTProto |
+| `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` | 空 | MTProto 所需的应用凭据 |
+| `MAX_FILE_MIB` | 自动 | 普通模式为 20，MTProto 模式为 2048 |
+| `RCLONE_REMOTE` | `onedrive` | rclone remote 名称 |
+| `ONEDRIVE_BASE_PATH` | `Telegram2OneDrive` | OneDrive 中的目标目录 |
+| `DUPLICATE_POLICY` | `rename` | 同名文件使用 `rename`、`replace` 或 `fail` |
 
-先运行 `rclone lsd onedrive:`。如果这里也失败，问题在 rclone 的 remote 名称或 Microsoft
-授权；重新运行 `rclone config`。如果你把 remote 命名成了别的名称，需要把 `.env` 中的
-`RCLONE_REMOTE=onedrive` 改成对应名称。
+全部配置和注释见 [.env.example](.env.example)。修改 `.env` 后需要重新创建容器，单纯执行
+`docker compose restart` 不会加载新的环境变量。
 
-### Bot 没有回复
+## 使用说明与限制
 
-查看 `journalctl --user -u telegram2onedrive -f`。同时确认 Token 没有填错，并且没有第二个程序
-使用同一个 Bot Token。Telegram 的轮询 Bot 只能由一个实例接收更新。
+- Bot 支持 `/start`、`/whoami` 和 `/status`；`/status` 用于检查 OneDrive 连接。
+- 文件按顺序传输，上传状态每 30 秒更新一次。
+- 临时下载会在上传结束后清理；rclone 授权和 MTProto Session 会保留。
+- 同名文件默认添加 ` (n)`，不会覆盖已有文件。
+- 默认只接受白名单用户的私聊文件，群组上传默认关闭。
+- 不要提交填好的 `.env`、rclone 配置或 MTProto Session，也不要让多个实例共用同一个 Bot
+  Token 或 Session。
+- 项目使用轮询，不支持 Webhook；OneDrive 自身的路径和文件大小限制仍然适用。
 
-### 出现 `MTProto support is not installed`
+## 更多文档
 
-在项目目录运行：
+- [MTProto 大文件模式](docs/mtproto.zh-CN.md)
+- [Local Bot API Server](docs/local-bot-api.zh-CN.md)
+- [原生 Linux 安装](docs/native-linux.zh-CN.md)
+- [参与开发](CONTRIBUTING.md)
+- [更新记录](CHANGELOG.md)
 
-```bash
-.venv/bin/python -m pip install ".[mtproto]"
-systemctl --user restart telegram2onedrive
-```
-
-### 大于 20 MiB 的文件仍然失败
-
-确认 `.env` 中的 `TELEGRAM_MTPROTO_ENABLED=true`，并检查 `TELEGRAM_API_ID`、
-`TELEGRAM_API_HASH` 是否完整。然后运行 `.venv/bin/telegram2onedrive check` 查看明确错误。
-
-### 修改 `.env` 后没有生效
-
-服务不会自动重载配置。修改后运行：
-
-```bash
-systemctl --user restart telegram2onedrive
-```
-
-## 工作方式和默认值
-
-- 20 MiB 以内的文件使用 Telegram Bot API；启用 MTProto 后，更大的文件自动改走 MTProto。
-- 未填写 `MAX_FILE_MIB` 时，普通模式默认为 20 MiB，MTProto 模式默认为 2048 MiB。
-- MTProto Session 默认保存在 `~/.local/state/telegram2onedrive/mtproto`，不需要手工配置。
-- 文件按顺序传输；上传状态每 30 秒更新一次。
-- 同名文件默认在扩展名前添加 ` (n)`，不会直接覆盖原文件。
-- `/status` 可以检查 Bot 当前是否能访问 OneDrive remote。
-- 默认只接受私聊和 `TELEGRAM_ALLOWED_USER_IDS` 中的用户。
-
-完整配置项可以查看 [.env.example](.env.example)。Local Bot API Server 是另一种高级大文件方案，
-见 [docs/local-bot-api.zh-CN.md](docs/local-bot-api.zh-CN.md)。MTProto 的工作原理和进阶设置见
-[docs/mtproto.zh-CN.md](docs/mtproto.zh-CN.md)。两种大文件方案不能同时启用。
-
-## 隐私、安全与限制
-
-Telegram 会接收原始消息和文件；服务器会临时下载文件；rclone 会把文件和目标名称发送到
-Microsoft OneDrive。项目不包含遥测。
-
-不要提交填好的 `.env`、rclone 配置或 MTProto Session。默认关闭群组转存，因为群成员可能看到
-文件名和状态消息。不要让多个进程共用同一个 Bot Token 或 MTProto Session。
-
-Bot API 使用轮询，不支持 Webhook。OneDrive 的路径和文件大小限制仍然适用。Local Bot API 和
-MTProto 的真实外部服务不会在 GitHub Actions 中连接测试，但关键路由、生命周期、清理和失败行为
-有自动化测试覆盖。
-
-安全问题请通过 [GitHub 私密漏洞报告](SECURITY.md)提交。
-
-## 开发与许可证
-
-开发检查见 [CONTRIBUTING.md](CONTRIBUTING.md)，更新记录见 [CHANGELOG.md](CHANGELOG.md)。
-Telegram2OneDrive 使用 [MIT License](LICENSE)。
+安全问题请通过 [GitHub 私密漏洞报告](SECURITY.md)提交。项目使用 [MIT License](LICENSE)，与
+Telegram、Microsoft 和 rclone 项目无隶属或背书关系。

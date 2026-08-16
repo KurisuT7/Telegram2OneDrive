@@ -1,0 +1,22 @@
+name: telegram2onedrive
+
+services:
+  bot:
+    build:
+      context: .
+    image: telegram2onedrive:local
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    environment:
+      RCLONE_CONFIG: /config/rclone/rclone.conf
+    volumes:
+      - rclone-config:/config/rclone
+      - telegram-state:/home/telegram2onedrive/.local/state/telegram2onedrive
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  rclone-config:
+  telegram-state:
