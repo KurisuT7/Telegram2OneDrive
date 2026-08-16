@@ -1,0 +1,16 @@
+[Unit]
+Description=Telegram2OneDrive bot
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Telegram2OneDrive
+ExecStart=%h/Telegram2OneDrive/.venv/bin/telegram2onedrive run
+Restart=on-failure
+RestartSec=5s
+UMask=0077
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

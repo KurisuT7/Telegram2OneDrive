@@ -10,8 +10,7 @@ This integration is optional. The default cloud path is smaller and has fewer op
 
 - The official [`tdlib/telegram-bot-api`](https://github.com/tdlib/telegram-bot-api) server running
   with `--local`
-- Your own Telegram `api_id` and `api_hash` from
-  [my.telegram.org](https://my.telegram.org/apps)
+- A Telegram `api_id` and `api_hash` from [my.telegram.org](https://my.telegram.org/apps)
 - The application and API server on the same host, or a shared volume exposing the exact absolute
   file paths returned by the server
 - A private API listener; do not expose the unauthenticated local HTTP endpoint to the internet
@@ -31,8 +30,8 @@ TELEGRAM_BASE_FILE_URL=http://127.0.0.1:8081/file/bot
 MAX_FILE_MIB=2000
 ```
 
-Run `telegram2onedrive --env-file .env check`, then start the bot and transfer a small synthetic file
-before relying on larger transfers.
+From the repository directory, run `.venv/bin/telegram2onedrive check` and then
+`.venv/bin/telegram2onedrive run`. Transfer a small test file before relying on larger transfers.
 
 In local mode, Telegram2OneDrive resolves and reads the absolute path returned by the API server. It
 does not delete that file because the Local Bot API Server owns its retention. Monitor that server's

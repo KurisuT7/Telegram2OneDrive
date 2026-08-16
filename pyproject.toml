@@ -58,6 +58,7 @@ include = [
     "/src",
     "/tests",
     "/docs",
+    "/deploy",
     "/.env.example",
     "/CHANGELOG.md",
     "/CONTRIBUTING.md",

@@ -18,15 +18,26 @@ from telegram2onedrive.rclone import RcloneClient, RcloneError
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="telegram2onedrive")
     parser.add_argument("--version", action="version", version=__version__)
-    parser.add_argument("--env-file", type=Path, help="load configuration from this dotenv file")
+    parser.add_argument(
+        "--env-file",
+        type=Path,
+        help="load this dotenv file instead of .env in the current directory",
+    )
     parser.add_argument("command", choices=("check", "run"))
     return parser
+
+
+def _resolve_env_file(explicit: Path | None) -> Path | None:
+    if explicit is not None:
+        return explicit
+    default = Path(".env")
+    return default if default.is_file() else None
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        settings = Settings.load(args.env_file)
+        settings = Settings.load(_resolve_env_file(args.env_file))
     except ConfigurationError as exc:
         print(f"Configuration error: {exc}")
         return 2

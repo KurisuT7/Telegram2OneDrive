@@ -40,7 +40,7 @@ def test_cloud_api_enforces_twenty_mib_limit() -> None:
     assert any("cannot exceed 20" in error for error in settings.validation_errors())
 
 
-def test_mtproto_fallback_accepts_large_files_and_owned_credentials(tmp_path: Path) -> None:
+def test_mtproto_fallback_accepts_large_files(tmp_path: Path) -> None:
     settings = Settings.from_mapping(
         valid_values()
         | {
@@ -55,12 +55,28 @@ def test_mtproto_fallback_accepts_large_files_and_owned_credentials(tmp_path: Pa
     assert settings.telegram_api_id == 12345
 
 
+def test_mtproto_uses_large_file_and_state_directory_defaults(tmp_path: Path) -> None:
+    settings = Settings.from_mapping(
+        valid_values()
+        | {
+            "TELEGRAM_MTPROTO_ENABLED": "true",
+            "TELEGRAM_API_ID": "12345",
+            "TELEGRAM_API_HASH": "a" * 32,
+            "XDG_STATE_HOME": str(tmp_path / "state"),
+        }
+    )
+    assert settings.validation_errors() == []
+    assert settings.max_file_mib == 2048
+    assert settings.telegram_mtproto_session_dir == (
+        tmp_path / "state" / "telegram2onedrive" / "mtproto"
+    )
+
+
 def test_mtproto_requires_complete_credentials() -> None:
     settings = Settings.from_mapping(valid_values() | {"TELEGRAM_MTPROTO_ENABLED": "true"})
     errors = settings.validation_errors()
     assert any("TELEGRAM_API_ID" in error for error in errors)
     assert any("TELEGRAM_API_HASH" in error for error in errors)
-    assert any("TELEGRAM_MTPROTO_SESSION_DIR" in error for error in errors)
 
 
 def test_mtproto_rejects_local_mode_and_relative_session_directory() -> None:
