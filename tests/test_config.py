@@ -7,7 +7,7 @@ from telegram2onedrive.config import ConfigurationError, Settings
 
 def valid_values() -> dict[str, str]:
     return {
-        "TELEGRAM_BOT_TOKEN": "synthetic-token",
+        "TELEGRAM_BOT_TOKEN": "1:test",
         "TELEGRAM_ALLOWED_USER_IDS": "123, 456",
         "RCLONE_REMOTE": "onedrive",
     }
@@ -17,6 +17,7 @@ def test_parses_allowlist_and_defaults() -> None:
     settings = Settings.from_mapping(valid_values())
     assert settings.allowed_user_ids == frozenset({123, 456})
     assert settings.max_file_mib == 20
+    assert settings.telegram_mtproto_enabled is False
     assert settings.duplicate_policy == "rename"
     assert settings.validation_errors() == []
 
@@ -37,6 +38,80 @@ def test_empty_allowlist_is_bootstrap_warning() -> None:
 def test_cloud_api_enforces_twenty_mib_limit() -> None:
     settings = Settings.from_mapping(valid_values() | {"MAX_FILE_MIB": "21"})
     assert any("cannot exceed 20" in error for error in settings.validation_errors())
+
+
+def test_mtproto_fallback_accepts_large_files_and_owned_credentials(tmp_path: Path) -> None:
+    settings = Settings.from_mapping(
+        valid_values()
+        | {
+            "TELEGRAM_MTPROTO_ENABLED": "true",
+            "TELEGRAM_API_ID": "12345",
+            "TELEGRAM_API_HASH": "a" * 32,
+            "TELEGRAM_MTPROTO_SESSION_DIR": str(tmp_path / "session"),
+            "MAX_FILE_MIB": "2048",
+        }
+    )
+    assert settings.validation_errors() == []
+    assert settings.telegram_api_id == 12345
+
+
+def test_mtproto_requires_complete_credentials() -> None:
+    settings = Settings.from_mapping(valid_values() | {"TELEGRAM_MTPROTO_ENABLED": "true"})
+    errors = settings.validation_errors()
+    assert any("TELEGRAM_API_ID" in error for error in errors)
+    assert any("TELEGRAM_API_HASH" in error for error in errors)
+    assert any("TELEGRAM_MTPROTO_SESSION_DIR" in error for error in errors)
+
+
+def test_mtproto_rejects_local_mode_and_relative_session_directory() -> None:
+    settings = Settings.from_mapping(
+        valid_values()
+        | {
+            "TELEGRAM_MTPROTO_ENABLED": "true",
+            "TELEGRAM_LOCAL_MODE": "true",
+            "TELEGRAM_BASE_URL": "http://127.0.0.1:8081/bot",
+            "TELEGRAM_BASE_FILE_URL": "http://127.0.0.1:8081/file/bot",
+            "TELEGRAM_API_ID": "12345",
+            "TELEGRAM_API_HASH": "a" * 32,
+            "TELEGRAM_MTPROTO_SESSION_DIR": "session",
+        }
+    )
+    errors = settings.validation_errors()
+    assert "TELEGRAM_LOCAL_MODE and TELEGRAM_MTPROTO_ENABLED are mutually exclusive" in errors
+    assert "TELEGRAM_MTPROTO_SESSION_DIR must be an absolute path" in errors
+
+
+def test_bot_api_rejects_unused_mtproto_credentials(tmp_path: Path) -> None:
+    settings = Settings.from_mapping(
+        valid_values()
+        | {
+            "TELEGRAM_API_ID": "12345",
+            "TELEGRAM_API_HASH": "a" * 32,
+            "TELEGRAM_MTPROTO_SESSION_DIR": str(tmp_path / "session"),
+        }
+    )
+    assert (
+        "MTProto credentials require TELEGRAM_MTPROTO_ENABLED=true" in settings.validation_errors()
+    )
+
+
+def test_mtproto_rejects_unsafe_session_name(tmp_path: Path) -> None:
+    settings = Settings.from_mapping(
+        valid_values()
+        | {
+            "TELEGRAM_MTPROTO_ENABLED": "true",
+            "TELEGRAM_API_ID": "12345",
+            "TELEGRAM_API_HASH": "a" * 32,
+            "TELEGRAM_MTPROTO_SESSION_DIR": str(tmp_path / "session"),
+            "TELEGRAM_MTPROTO_SESSION_NAME": "../shared",
+        }
+    )
+    assert any("SESSION_NAME" in error for error in settings.validation_errors())
+
+
+def test_rejects_invalid_bot_token_format() -> None:
+    settings = Settings.from_mapping(valid_values() | {"TELEGRAM_BOT_TOKEN": "not-a-token"})
+    assert "TELEGRAM_BOT_TOKEN has an invalid format" in settings.validation_errors()
 
 
 def test_local_mode_requires_urls() -> None:
@@ -64,8 +139,8 @@ def test_local_mode_rejects_token_and_wrong_url_shape() -> None:
         valid_values()
         | {
             "TELEGRAM_LOCAL_MODE": "true",
-            "TELEGRAM_BASE_URL": "http://127.0.0.1:8081/synthetic-token",
-            "TELEGRAM_BASE_FILE_URL": "http://127.0.0.1:8081/file/synthetic-token",
+            "TELEGRAM_BASE_URL": "http://127.0.0.1:8081/1:test",
+            "TELEGRAM_BASE_FILE_URL": "http://127.0.0.1:8081/file/1:test",
         }
     )
     errors = settings.validation_errors()
@@ -108,9 +183,9 @@ def test_load_env_file_and_environment_override(
         "TELEGRAM_BOT_TOKEN=from-file\nRCLONE_REMOTE=file-remote\n",
         encoding="utf-8",
     )
-    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "from-environment")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "1:environment")
     settings = Settings.load(env_file)
-    assert settings.telegram_bot_token == "from-environment"
+    assert settings.telegram_bot_token == "1:environment"
     assert settings.rclone_remote == "file-remote"
 
 

@@ -6,7 +6,8 @@ Telegram2OneDrive accepts files from explicitly allowed Telegram users, classifi
 type, and transfers them to a OneDrive remote managed by rclone.
 
 The default Telegram cloud Bot API path supports files up to 20 MiB. An optional Local Bot API
-Server adapter supports larger downloads when the bot and API server share the same filesystem.
+Server or a Pyrogram MTProto large-file fallback can handle larger downloads without changing the
+Bot API update and OneDrive upload paths.
 
 ## Requirements
 
@@ -14,6 +15,10 @@ Server adapter supports larger downloads when the bot and API server share the s
 - A Telegram bot created with [@BotFather](https://t.me/BotFather)
 - [rclone](https://rclone.org/downloads/) with a OneDrive remote
 - A host that can reach Telegram, Microsoft login, Microsoft Graph, and OneDrive
+
+The MTProto fallback additionally requires your own Telegram application from
+[my.telegram.org/apps](https://my.telegram.org/apps). It uses the BotFather bot identity only and
+does not require a personal-account session.
 
 The application does not accept OneDrive tokens directly. rclone owns the OAuth flow, token refresh,
 large-file upload behavior, and its writable credential file.
@@ -90,6 +95,20 @@ Telegram2OneDrive/
 
 Use `/status` to verify Telegram-side access to the configured OneDrive remote.
 
+## Optional large-file paths
+
+The default cloud Bot API needs no additional Telegram configuration. For larger files, choose one
+documented alternative:
+
+- [Local Bot API Server](docs/local-bot-api.md): retains the HTTP Bot API and requires a shared
+  filesystem with the local server.
+- [MTProto large-file fallback](docs/mtproto.md): keeps Bot API polling and small downloads, but
+  uses Pyrogram for files above 20 MiB. It requires your own `api_id` and `api_hash` and stores a
+  restricted bot session outside the repository.
+
+Local Bot API mode and MTProto fallback are mutually exclusive. Never let multiple processes share
+the same Bot token or MTProto session database.
+
 ## Configuration
 
 | Variable | Default | Purpose |
@@ -98,20 +117,29 @@ Use `/status` to verify Telegram-side access to the configured OneDrive remote.
 | `TELEGRAM_ALLOWED_USER_IDS` | empty | Comma-separated positive user IDs |
 | `TELEGRAM_ALLOW_GROUP_CHATS` | `false` | Permit allowed users to transfer from groups |
 | `MAX_FILE_MIB` | `20` | Reject larger files before download |
+| `TELEGRAM_LOCAL_MODE` | `false` | Use a Local Bot API Server |
+| `TELEGRAM_BASE_URL` | empty | Local Bot API method URL ending in `/bot` |
+| `TELEGRAM_BASE_FILE_URL` | empty | Local Bot API file URL ending in `/file/bot` |
+| `TELEGRAM_MTPROTO_ENABLED` | `false` | Use MTProto only for files above 20 MiB |
+| `TELEGRAM_API_ID` | empty | Own numeric Telegram application ID for MTProto |
+| `TELEGRAM_API_HASH` | empty | Own 32-character application hash for MTProto |
+| `TELEGRAM_MTPROTO_SESSION_DIR` | empty | Required absolute MTProto session directory outside the repository |
+| `TELEGRAM_MTPROTO_SESSION_NAME` | `telegram2onedrive` | Safe Pyrogram session basename |
 | `RCLONE_REMOTE` | `onedrive` | Name of the configured OneDrive remote |
 | `RCLONE_CONFIG` | rclone discovery | Optional absolute config path |
 | `ONEDRIVE_BASE_PATH` | `Telegram2OneDrive` | Destination below the OneDrive root |
 | `DUPLICATE_POLICY` | `rename` | `rename`, `replace`, or `fail` |
 | `RCLONE_TIMEOUT_SECONDS` | `3600` | Per-command timeout, 60–86400 seconds |
-| `TRANSFER_TMP_DIR` | system temp | Optional cloud API download directory |
+| `TRANSFER_TMP_DIR` | system temp | Optional cloud Bot API and MTProto download directory |
 
-Local Bot API variables are documented in [docs/local-bot-api.md](docs/local-bot-api.md).
+Transport-specific setup is documented in [docs/local-bot-api.md](docs/local-bot-api.md) and
+[docs/mtproto.md](docs/mtproto.md).
 
 ## Operation and failure behavior
 
 - Transfers are serialized so two updates cannot choose the same renamed destination concurrently.
-- Cloud Bot API downloads use a per-transfer temporary directory that is removed after success or
-  failure.
+- Cloud Bot API and MTProto downloads use a per-transfer temporary directory that is removed after
+  success or failure. The MTProto session database remains in its separately configured directory.
 - Local Bot API files belong to that server and are not deleted by Telegram2OneDrive.
 - The upload status is refreshed every 30 seconds. rclone may pause before a transfer while it
   refreshes Microsoft authorization.
@@ -126,9 +154,11 @@ Telegram receives the original message and file. The host temporarily receives c
 and rclone sends the file and destination name to Microsoft OneDrive. The application includes no
 telemetry.
 
-Keep the bot token, rclone config, downloaded files, logs, and process environment private. Prefer a
-dedicated service account, a private bot chat, and an explicit user allowlist. Group transfers are
-off by default because other group members can see file names and status messages.
+Keep the bot token, MTProto application credentials and session, rclone config, downloaded files,
+logs, and process environment private. Prefer a dedicated service account, a private bot chat, and
+an explicit user allowlist. Group transfers are off by default because other group members can see
+file names and status messages. Never configure MTProto with an API ID/hash copied from a public
+channel or another application.
 
 Report vulnerabilities through [GitHub private vulnerability reporting](SECURITY.md).
 
@@ -137,7 +167,11 @@ Report vulnerabilities through [GitHub private vulnerability reporting](SECURITY
 - The cloud Bot API cannot download files above 20 MiB.
 - The Local Bot API adapter requires a shared filesystem and has not been exercised end to end in
   GitHub Actions; its URL, local-path, and size behavior are covered by configuration and unit tests.
-- Only polling is implemented. Webhooks and multiple bot instances are not supported.
+- The MTProto fallback is limited to 2048 MiB by this project and is not exercised against Telegram
+  in GitHub Actions; bot-identity verification, lifecycle, routing, cleanup and failures have unit
+  tests. A production-derived Pyrogram design informed this implementation, but that is not a
+  compatibility guarantee for every Telegram environment.
+- The Bot API uses polling. Webhooks and multiple instances sharing a bot or session are unsupported.
 - Destination conflict checks cannot make external OneDrive writers transactional. `--immutable`
   prevents the application from silently overwriting a race for `rename` and `fail` policies.
 - OneDrive path and file-size limits still apply. rclone maps characters unsupported by OneDrive.

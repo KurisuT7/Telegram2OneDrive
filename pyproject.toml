@@ -32,6 +32,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+mtproto = [
+    "pyrogram>=2.0.106,<3; python_version < '3.14'",
+]
 dev = [
     "build>=1.2,<2",
     "mypy>=1.15,<3",
@@ -39,6 +42,7 @@ dev = [
     "pytest>=8.3,<10",
     "pytest-cov>=6,<8",
     "ruff>=0.15,<1",
+    "pyrogram>=2.0.106,<3; python_version < '3.14'",
     "twine>=6,<8",
 ]
 
