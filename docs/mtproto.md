@@ -1,110 +1,176 @@
-# MTProto large-file fallback
+# MTProto large-file mode
 
-[简体中文](mtproto.zh-CN.md)
+[简体中文](mtproto.zh-CN.md) · [Back to README](../README.md)
 
-Telegram2OneDrive normally receives updates and downloads files through the HTTP Bot API. When the
-optional MTProto fallback is enabled, the same bot also opens a Pyrogram session:
+The Telegram cloud Bot API only lets a bot download files up to 20 MiB. With MTProto enabled:
 
-- updates, commands, authorization and files up to 20 MiB remain on the Bot API;
-- files above 20 MiB are fetched by chat ID and message ID through MTProto;
-- both paths use the same validation, temporary storage, classification and rclone upload code.
+- commands, updates, and files up to 20 MiB still use the Bot API;
+- files larger than 20 MiB automatically use MTProto for the download;
+- downloaded files follow the same classification and rclone upload path to OneDrive.
 
-This is a large-file download fallback, not a personal-account client and not a second update
-consumer. The cloud Bot API's 20 MiB download boundary is documented in Telegram's
-[Local Bot API Server guide](https://core.telegram.org/bots/features#local-bot-api).
+The program opens a bot session using the same bot token. It does not sign in to a personal
+account. This project limits each file to 2048 MiB.
 
-## Requirements
+## 1. Get an API ID and hash
 
-- Python 3.11–3.13 for the MTProto fallback (the core Bot API path also supports Python 3.14)
-- the `mtproto` package extra
-- a BotFather bot token
-- an application ID and hash created by the operator at
-  [my.telegram.org/apps](https://my.telegram.org/apps)
-- an absolute session directory outside the source checkout
+1. Make sure you are signed in to an official Telegram app on your phone or computer.
+2. Open [my.telegram.org](https://my.telegram.org) in a browser.
+3. Enter the phone number for your Telegram account.
+4. Telegram sends the code to the Telegram app. Enter that code on the website.
+5. Select `API development tools`.
+6. Complete the form: use `Telegram2OneDrive` for `App title`, `telegram2onedrive` for `Short
+   name`, leave `URL` empty if the form permits it (otherwise use this repository URL), choose
+   `Desktop` or `Other` for `Platform`, and use `Telegram file transfer to OneDrive` for
+   `Description`.
+7. Submit the form and record the displayed `api_id` and `api_hash`.
 
-Do not use application credentials copied from a public channel, sample file or another operator.
-Telegram documents application IDs as belonging to the application that obtained them and can
-reject published credentials.
+If the page says that an application already exists, use the `api_id` and `api_hash` displayed
+there.
 
-Install the normal implementation:
+## 2. Install MTProto support
 
-```bash
-python -m pip install -e ".[mtproto]"
-```
-
-The production design this adapter follows also uses TgCrypto for faster cryptography. TgCrypto is
-a native extension and is therefore not forced by the portable package extra. On a compatible
-Linux host, install and verify it separately in the same environment:
+Enter the Telegram2OneDrive repository directory. If no virtual environment exists yet, run the
+complete sequence:
 
 ```bash
-python -m pip install TgCrypto
+cd ~/Telegram2OneDrive
+python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install ".[mtproto]"
 ```
 
-TgCrypto improves cryptographic throughput but is not required for correctness. If no compatible
-wheel or compiler is available, leave it uninstalled rather than weakening the host toolchain.
+For an existing installation, only the final install command is required. MTProto currently
+supports Python 3.11–3.13.
 
-## Configuration
+## 3. Edit `.env`
 
-Start from `.env.example` and set:
+If `.env` does not exist yet, create it from the example:
+
+```bash
+cp .env.example .env
+chmod 600 .env
+nano .env
+```
+
+Make sure the bot token is set, then find these three entries. Replace only the text after each
+equals sign; do not add quotation marks or duplicate entries:
 
 ```dotenv
 TELEGRAM_MTPROTO_ENABLED=true
-TELEGRAM_API_ID=123456
-TELEGRAM_API_HASH=0123456789abcdef0123456789abcdef
-TELEGRAM_MTPROTO_SESSION_DIR=/var/lib/telegram2onedrive/mtproto
+TELEGRAM_API_ID=paste-api-id-here
+TELEGRAM_API_HASH=paste-api-hash-here
+```
+
+You do not need to set `MAX_FILE_MIB` or a session path. Enabling MTProto automatically uses these
+defaults:
+
+```dotenv
+MAX_FILE_MIB=2048
+TELEGRAM_MTPROTO_SESSION_DIR=~/.local/state/telegram2onedrive/mtproto
+TELEGRAM_MTPROTO_SESSION_NAME=telegram2onedrive
+```
+
+These lines show the defaults; do not copy them into `.env`. In nano, press `Ctrl+O`, press Enter to
+confirm, and then press `Ctrl+X` to exit.
+
+## 4. Check and start
+
+The program automatically loads `.env` from the repository directory:
+
+```bash
+.venv/bin/telegram2onedrive check
+.venv/bin/telegram2onedrive run
+```
+
+On its first start, the program creates the session in the state directory automatically. It does
+not ask for a phone number or an additional interactive sign-in.
+
+Send a small file first to confirm the normal upload path, then send a file larger than 20 MiB.
+`Uploaded ...` confirms that the MTProto download and OneDrive upload both completed.
+
+If you use the systemd service, restart it after editing `.env`:
+
+```bash
+systemctl --user restart telegram2onedrive
+journalctl --user -u telegram2onedrive -f
+```
+
+## Troubleshooting
+
+### `MTProto support is not installed`
+
+Pyrogram is missing from the virtual environment that runs the bot. Enter the repository directory
+and run:
+
+```bash
+.venv/bin/python -m pip install ".[mtproto]"
+```
+
+### Invalid `TELEGRAM_API_ID` or `TELEGRAM_API_HASH`
+
+`TELEGRAM_API_ID` must be a positive integer, and `TELEGRAM_API_HASH` must contain 32 hexadecimal
+characters. Check for copied spaces, quotation marks, or labels.
+
+### `session belongs to a different bot`
+
+The existing session does not match the current bot token. Stop the service, preserve the logs and
+session while you verify the configuration, and then use a new empty session directory for the
+current bot.
+
+### `could not find the Telegram message`
+
+Confirm that the original message still exists and the bot can still access its private chat or
+group.
+
+### Repeated SQLite locking errors
+
+Two processes are usually using the same session. Stop the manually started copy and make sure only
+one systemd service instance remains.
+
+### A large file still uses the Bot API or is rejected
+
+Confirm `TELEGRAM_MTPROTO_ENABLED=true`, then run:
+
+```bash
+.venv/bin/telegram2onedrive check
+```
+
+If you set `MAX_FILE_MIB` manually, it must be above 20 and no greater than 2048. Leaving it empty is
+the simplest option.
+
+## Advanced settings
+
+Only override these values when the default directory is unsuitable:
+
+```dotenv
+TELEGRAM_MTPROTO_SESSION_DIR=/absolute/path/telegram2onedrive/mtproto
 TELEGRAM_MTPROTO_SESSION_NAME=telegram2onedrive
 MAX_FILE_MIB=2048
 ```
 
-The examples are placeholders. Do not reuse them. `TELEGRAM_MTPROTO_SESSION_NAME` accepts letters,
-digits, underscores and hyphens only.
+The session directory must be absolute. The session name accepts letters, digits, underscores, and
+hyphens only. Do not let two processes share one session, and do not place the session under the
+source checkout or temporary download directory.
 
-MTProto fallback and `TELEGRAM_LOCAL_MODE` are mutually exclusive. A local Bot API Server already
-provides its own larger-file path; choose one approach per bot instance.
+MTProto and `TELEGRAM_LOCAL_MODE` cannot be enabled together. A Local Bot API Server supplies its
+own large-file path, so one bot instance must use only one of these backends.
 
-## First start
-
-Validate local configuration and OneDrive access first:
-
-```bash
-telegram2onedrive --env-file /etc/telegram2onedrive.env check
-```
-
-Then start the bot normally:
+For higher MTProto cryptographic throughput, you may try the optional TgCrypto package in the same
+virtual environment:
 
 ```bash
-telegram2onedrive --env-file /etc/telegram2onedrive.env run
+.venv/bin/python -m pip install TgCrypto
 ```
 
-The Bot API polling application starts Pyrogram in its startup callback and closes it during
-shutdown. Pyrogram creates `<session-name>.session` in the configured directory. On POSIX systems,
-Telegram2OneDrive restricts the directory to mode `0700` and matching session files to `0600`.
+TgCrypto is a native extension and is not required for correct behavior. Skip it if a compatible
+wheel or compiler is unavailable.
 
-Do not start two processes with the same session. Do not run an interactive smoke test against the
-live service's session database. Stop the service first or use a separate disposable bot and session.
+## Sessions and temporary files
 
-## Security and operations
+The session database contains MTProto authorization for the bot. On POSIX systems, the program
+restricts the session directory to mode `0700` and session files to `0600`. Do not place a completed
+`.env`, session, rclone config, or temporary download in Git, container images, or public release
+artifacts.
 
-The session database contains an MTProto authorization key. Anyone who obtains it may act as the
-bot. Keep the directory out of Git, backups intended for publication, container images, logs and
-support bundles. On Windows, apply an ACL granting access only to the service account because POSIX
-mode bits are not enforced there.
-
-The client verifies that an existing session belongs to the bot ID encoded in
-`TELEGRAM_BOT_TOKEN`. A mismatched or user-account session is rejected. Preserve an unexpected
-session as evidence, configure a new empty session directory and investigate before deleting it.
-
-Files are still bounded by `MAX_FILE_MIB`, currently limited by this project to 2048 MiB. Every
-cloud Bot API or MTProto download uses a per-transfer temporary directory that is removed after the
-upload attempt. The Pyrogram session directory is persistent and must not be placed under the
-temporary download directory.
-
-## Troubleshooting
-
-- `MTProto support is not installed`: install `.[mtproto]` in the same environment that runs the bot.
-- `session belongs to a different bot`: do not reuse that session; verify the token and session path.
-- `could not find the Telegram message`: confirm the original message still exists and the bot can
-  access its chat.
-- repeated SQLite locking errors: verify that only one process uses the configured session name.
-- Bot API errors on files above 20 MiB: confirm MTProto is enabled, `MAX_FILE_MIB` is above 20 and
-  startup completed without an MTProto error.
+Bot API and MTProto downloads use a per-transfer temporary directory that is removed after the
+upload attempt. The session is persistent runtime data and is not removed with temporary files.

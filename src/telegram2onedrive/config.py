@@ -65,6 +65,12 @@ def _normalize_base_path(value: str) -> str:
     return "/".join(parts)
 
 
+def _default_mtproto_session_dir(values: Mapping[str, str]) -> Path:
+    state_home = str(values.get("XDG_STATE_HOME", "")).strip()
+    root = Path(state_home).expanduser() if state_home else Path.home() / ".local" / "state"
+    return root / "telegram2onedrive" / "mtproto"
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     telegram_bot_token: str
@@ -106,25 +112,31 @@ class Settings:
         config_value = get("RCLONE_CONFIG")
         temp_value = get("TRANSFER_TMP_DIR")
         session_dir_value = get("TELEGRAM_MTPROTO_SESSION_DIR")
+        mtproto_enabled = _parse_bool(
+            "TELEGRAM_MTPROTO_ENABLED", get("TELEGRAM_MTPROTO_ENABLED", "false")
+        )
+        max_file_value = get("MAX_FILE_MIB") or ("2048" if mtproto_enabled else "20")
         return cls(
             telegram_bot_token=get("TELEGRAM_BOT_TOKEN"),
             allowed_user_ids=_parse_user_ids(get("TELEGRAM_ALLOWED_USER_IDS")),
             allow_group_chats=_parse_bool(
                 "TELEGRAM_ALLOW_GROUP_CHATS", get("TELEGRAM_ALLOW_GROUP_CHATS", "false")
             ),
-            max_file_mib=_parse_int("MAX_FILE_MIB", get("MAX_FILE_MIB", "20")),
+            max_file_mib=_parse_int("MAX_FILE_MIB", max_file_value),
             telegram_local_mode=_parse_bool(
                 "TELEGRAM_LOCAL_MODE", get("TELEGRAM_LOCAL_MODE", "false")
             ),
             telegram_base_url=get("TELEGRAM_BASE_URL"),
             telegram_base_file_url=get("TELEGRAM_BASE_FILE_URL"),
-            telegram_mtproto_enabled=_parse_bool(
-                "TELEGRAM_MTPROTO_ENABLED", get("TELEGRAM_MTPROTO_ENABLED", "false")
-            ),
+            telegram_mtproto_enabled=mtproto_enabled,
             telegram_api_id=_parse_optional_int("TELEGRAM_API_ID", get("TELEGRAM_API_ID")),
             telegram_api_hash=get("TELEGRAM_API_HASH"),
             telegram_mtproto_session_dir=(
-                Path(session_dir_value).expanduser() if session_dir_value else None
+                Path(session_dir_value).expanduser()
+                if session_dir_value
+                else _default_mtproto_session_dir(values)
+                if mtproto_enabled
+                else None
             ),
             telegram_mtproto_session_name=get("TELEGRAM_MTPROTO_SESSION_NAME", "telegram2onedrive"),
             rclone_remote=get("RCLONE_REMOTE", "onedrive"),

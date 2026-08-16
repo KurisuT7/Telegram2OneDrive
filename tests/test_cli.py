@@ -43,6 +43,20 @@ class FakeClient:
         return self.outcome
 
 
+def test_resolve_env_file_uses_dotenv_in_current_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert cli._resolve_env_file(None) is None
+    (tmp_path / ".env").write_text("TELEGRAM_BOT_TOKEN=1:test\n", encoding="utf-8")
+    assert cli._resolve_env_file(None) == Path(".env")
+
+
+def test_resolve_env_file_prefers_explicit_path(tmp_path: Path) -> None:
+    explicit = tmp_path / "production.env"
+    assert cli._resolve_env_file(explicit) == explicit
+
+
 def test_configuration_load_error(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

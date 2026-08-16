@@ -14,10 +14,18 @@ User-visible changes are recorded here. The format is based on
 - Persistent MTProto bot sessions outside the repository, with bot-identity verification,
   restricted POSIX permissions and explicit protection against concurrent session use.
 
+### Changed
+
+- Reworked the English and Chinese documentation into a complete Linux-server setup path covering
+  BotFather, Telegram application credentials, headless OneDrive authorization, first-run
+  allowlisting, verification, systemd startup, updates, and troubleshooting.
+- The command now loads `.env` from the current directory automatically. Enabling MTProto also
+  defaults the file limit to 2048 MiB and the session directory to the user's state directory.
+
 ### Security
 
-- Shared or publicly posted Telegram application credentials are explicitly unsupported; MTProto
-  sessions are treated as bot credentials and excluded from source, logs, and examples.
+- MTProto application credentials and sessions are treated as runtime credentials and excluded
+  from source, logs, and examples.
 
 ## [0.1.0] - 2026-08-16
 
