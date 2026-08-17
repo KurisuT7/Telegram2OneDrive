@@ -8,6 +8,8 @@ User-visible changes are recorded here. The format is based on
 
 ### Added
 
+- A Docker Compose deployment with a non-root application image, bundled rclone and MTProto
+  dependencies, persistent credential/session volumes, and container build validation in CI.
 - An optional Pyrogram MTProto fallback for files above the cloud Bot API's 20 MiB boundary, up to
   the configured 2048 MiB project limit. Bot API polling, commands and small downloads remain
   unchanged.
@@ -16,9 +18,8 @@ User-visible changes are recorded here. The format is based on
 
 ### Changed
 
-- Reworked the English and Chinese documentation into a complete Linux-server setup path covering
-  BotFather, Telegram application credentials, headless OneDrive authorization, first-run
-  allowlisting, verification, systemd startup, updates, and troubleshooting.
+- Reworked the English and Chinese documentation around one Docker Compose quick start, with native
+  Linux deployment and advanced download backends kept in focused guides.
 - The command now loads `.env` from the current directory automatically. Enabling MTProto also
   defaults the file limit to 2048 MiB and the session directory to the user's state directory.
 

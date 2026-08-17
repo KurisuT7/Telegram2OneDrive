@@ -49,6 +49,23 @@ jobs:
           python -m build
           python -m twine check dist/*
 
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1c # v7.0.1
+      - name: Validate Compose configuration
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+      - name: Build container image
+        run: docker build --tag telegram2onedrive:test .
+      - name: Inspect bundled commands and runtime user
+        run: |
+          test "$(docker image inspect --format '{{.Config.User}}' telegram2onedrive:test)" = "10001:10001"
+          docker run --rm telegram2onedrive:test --version
+          docker run --rm --entrypoint rclone telegram2onedrive:test version
+
   audit:
     runs-on: ubuntu-latest
     steps:

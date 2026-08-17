@@ -17,6 +17,19 @@ python -m build
 python -m twine check dist/*
 ```
 
+When Docker or deployment files change, also run:
+
+```bash
+cp .env.example .env
+docker compose config --quiet
+docker build -t telegram2onedrive:test .
+docker run --rm telegram2onedrive:test --version
+docker run --rm --entrypoint rclone telegram2onedrive:test version
+```
+
+Remove the test image and the placeholder `.env` after validation. Do not use production
+credentials for development checks.
+
 Tests must use synthetic file names, identifiers, command results, and file content. Never submit
 credentials, Telegram application IDs or hashes, Telegram sessions, real chat or user IDs,
 OneDrive data, `rclone.conf`, server paths, logs, or production configuration.
