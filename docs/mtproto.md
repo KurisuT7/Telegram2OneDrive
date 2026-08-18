@@ -20,10 +20,11 @@ TELEGRAM_API_ID=your-api-id
 TELEGRAM_API_HASH=your-api-hash
 ```
 
-The Docker image already includes the MTProto dependency. Recreate it:
+The published Docker image already includes the MTProto dependency. Recreate the container after
+changing `.env`:
 
 ```bash
-docker compose up -d --build
+docker compose up -d --force-recreate
 docker compose logs -f
 ```
 
@@ -54,7 +55,7 @@ let multiple instances use it concurrently.
 
 | Error or symptom | Resolution |
 | --- | --- |
-| `MTProto support is not installed` | Reinstall `.[mtproto]` natively, or rebuild the Docker image |
+| `MTProto support is not installed` | Reinstall `.[mtproto]` natively, or pull the published Docker image |
 | Invalid API ID or hash | The ID must be positive and the hash must contain 32 hexadecimal characters |
 | `session belongs to a different bot` | Restore the original token or start with a new session |
 | `could not find the Telegram message` | Confirm that the message still exists and the bot can access its chat |

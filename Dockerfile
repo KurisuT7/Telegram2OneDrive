@@ -15,9 +15,19 @@ FROM rclone/rclone:1.75.0 AS rclone
 
 FROM python:3.13-slim-bookworm
 
+ARG VERSION=0.0.0
+ARG REVISION=unknown
+
 ENV HOME=/home/telegram2onedrive \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
+
+LABEL org.opencontainers.image.title="Telegram2OneDrive" \
+      org.opencontainers.image.description="Transfer allowlisted Telegram files to OneDrive" \
+      org.opencontainers.image.source="https://github.com/KurisuT7/Telegram2OneDrive" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.version="$VERSION" \
+      org.opencontainers.image.revision="$REVISION"
 
 RUN groupadd --gid 10001 telegram2onedrive \
     && useradd --no-log-init --uid 10001 --gid 10001 --create-home \

@@ -36,11 +36,18 @@ MTProto 只接管大于 20 MiB 的文件下载；Bot 命令、小文件下载、
 ### 1. 下载并填写配置
 
 ```bash
-git clone https://github.com/KurisuT7/Telegram2OneDrive.git
-cd Telegram2OneDrive
+curl -fLO https://github.com/KurisuT7/Telegram2OneDrive/releases/latest/download/telegram2onedrive.tar.gz
+curl -fLO https://github.com/KurisuT7/Telegram2OneDrive/releases/latest/download/SHA256SUMS
+sha256sum --check SHA256SUMS
+mkdir -p telegram2onedrive
+tar -xzf telegram2onedrive.tar.gz -C telegram2onedrive --strip-components=1
+cd telegram2onedrive
 cp .env.example .env
 chmod 600 .env
 ```
+
+校验命令应显示 `telegram2onedrive.tar.gz: OK`。运行包只包含 Compose 文件、配置示例和文档，
+并已固定为该版本发布时构建的容器镜像，服务器不需要自行构建镜像。
 
 编辑 `.env`。需要大文件支持时填写：
 
@@ -58,10 +65,10 @@ TELEGRAM_API_HASH=你的api_hash
 
 ### 2. 连接 OneDrive
 
-先构建镜像，再在容器中运行 rclone 的配置向导：
+先拉取发布镜像，再在容器中运行 rclone 的配置向导：
 
 ```bash
-docker compose build
+docker compose pull
 docker compose run --rm --entrypoint rclone bot config
 ```
 
@@ -107,12 +114,35 @@ docker compose up -d --force-recreate
 docker compose ps
 docker compose logs -f
 
-# 更新代码并重建
-git pull --ff-only
-docker compose up -d --build
-
 # 停止并移除容器
 docker compose down
+```
+
+升级时，在部署目录下载最新运行包。它会替换 Compose 文件和文档，但不包含 `.env`，Docker
+持久卷也不会受到影响。
+
+```bash
+curl -fLO https://github.com/KurisuT7/Telegram2OneDrive/releases/latest/download/telegram2onedrive.tar.gz
+curl -fLO https://github.com/KurisuT7/Telegram2OneDrive/releases/latest/download/SHA256SUMS
+sha256sum --check SHA256SUMS
+tar -xzf telegram2onedrive.tar.gz --strip-components=1
+docker compose pull
+docker compose up -d
+rm telegram2onedrive.tar.gz SHA256SUMS
+```
+
+回滚时，把下面的 `v0.2.0` 换成目标版本。每个 Release 运行包都固定了该版本实际构建出的镜像
+摘要，不会因为 `latest` 更新而改变。
+
+```bash
+RELEASE=v0.2.0
+curl -fLO "https://github.com/KurisuT7/Telegram2OneDrive/releases/download/${RELEASE}/telegram2onedrive.tar.gz"
+curl -fLO "https://github.com/KurisuT7/Telegram2OneDrive/releases/download/${RELEASE}/SHA256SUMS"
+sha256sum --check SHA256SUMS
+tar -xzf telegram2onedrive.tar.gz --strip-components=1
+docker compose pull
+docker compose up -d
+rm telegram2onedrive.tar.gz SHA256SUMS
 ```
 
 rclone 配置和 MTProto Session 分别保存在 Docker 的 `rclone-config` 与 `telegram-state` 持久卷
@@ -155,7 +185,7 @@ Python/rclone 环境或需要 systemd 直接管理进程的部署。
 - [MTProto 大文件模式](docs/mtproto.zh-CN.md)
 - [Local Bot API Server](docs/local-bot-api.zh-CN.md)
 - [原生 Linux 安装](docs/native-linux.zh-CN.md)
-- [参与开发](CONTRIBUTING.md)
+- [参与开发](https://github.com/KurisuT7/Telegram2OneDrive/blob/main/CONTRIBUTING.md)
 - [更新记录](CHANGELOG.md)
 
 安全问题请通过 [GitHub 私密漏洞报告](SECURITY.md)提交。项目使用 [MIT License](LICENSE)，与

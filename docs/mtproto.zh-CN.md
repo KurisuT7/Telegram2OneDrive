@@ -18,10 +18,10 @@ TELEGRAM_API_ID=你的api_id
 TELEGRAM_API_HASH=你的api_hash
 ```
 
-Docker 镜像已经包含 MTProto 依赖，重新创建容器即可：
+发布的 Docker 镜像已经包含 MTProto 依赖。修改 `.env` 后重新创建容器：
 
 ```bash
-docker compose up -d --build
+docker compose up -d --force-recreate
 docker compose logs -f
 ```
 
@@ -50,7 +50,7 @@ Bot 的 MTProto 授权信息，不要提交、分享或让多个实例同时使�
 
 | 错误或现象 | 处理方式 |
 | --- | --- |
-| `MTProto support is not installed` | 原生环境重新安装 `.[mtproto]`；Docker 重新构建镜像 |
+| `MTProto support is not installed` | 原生环境重新安装 `.[mtproto]`；Docker 拉取发布镜像 |
 | API ID 或 Hash 格式错误 | API ID 应为正整数，Hash 应为 32 位十六进制字符 |
 | `session belongs to a different bot` | 当前 Session 属于另一个 Bot；换回原 Token 或使用新的 Session |
 | `could not find the Telegram message` | 确认消息仍存在，并且 Bot 能访问所在聊天 |

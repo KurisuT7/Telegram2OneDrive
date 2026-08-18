@@ -21,7 +21,7 @@ When Docker or deployment files change, also run:
 
 ```bash
 cp .env.example .env
-docker compose config --quiet
+docker compose -f compose.yaml -f compose.build.yaml config --quiet
 docker build -t telegram2onedrive:test .
 docker run --rm telegram2onedrive:test --version
 docker run --rm --entrypoint rclone telegram2onedrive:test version
