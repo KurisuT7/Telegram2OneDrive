@@ -2,9 +2,7 @@ name: telegram2onedrive
 
 services:
   bot:
-    build:
-      context: .
-    image: telegram2onedrive:local
+    image: ${TELEGRAM2ONEDRIVE_IMAGE:-ghcr.io/kurisut7/telegram2onedrive:latest}
     restart: unless-stopped
     init: true
     env_file:

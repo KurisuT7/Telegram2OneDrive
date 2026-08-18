@@ -38,11 +38,19 @@ starting, prepare:
 ### 1. Download and configure
 
 ```bash
-git clone https://github.com/KurisuT7/Telegram2OneDrive.git
-cd Telegram2OneDrive
+curl -fLO https://github.com/KurisuT7/Telegram2OneDrive/releases/latest/download/telegram2onedrive.tar.gz
+curl -fLO https://github.com/KurisuT7/Telegram2OneDrive/releases/latest/download/SHA256SUMS
+sha256sum --check SHA256SUMS
+mkdir -p telegram2onedrive
+tar -xzf telegram2onedrive.tar.gz -C telegram2onedrive --strip-components=1
+cd telegram2onedrive
 cp .env.example .env
 chmod 600 .env
 ```
+
+The checksum command must print `telegram2onedrive.tar.gz: OK`. The runtime bundle contains the
+Compose file, configuration example, and documentation, and pins the container image released with
+it. The server does not build the image locally.
 
 Edit `.env`. For large-file support, set:
 
@@ -60,10 +68,10 @@ The remaining settings can keep their defaults.
 
 ### 2. Connect OneDrive
 
-Build the image, then run rclone's configuration wizard inside the container:
+Pull the published image, then run rclone's configuration wizard inside the container:
 
 ```bash
-docker compose build
+docker compose pull
 docker compose run --rm --entrypoint rclone bot config
 ```
 
@@ -109,12 +117,35 @@ the file appears under `Telegram2OneDrive` in OneDrive. With MTProto enabled, al
 docker compose ps
 docker compose logs -f
 
-# Update and rebuild
-git pull --ff-only
-docker compose up -d --build
-
 # Stop and remove the container
 docker compose down
+```
+
+To upgrade, download the newest runtime bundle into the deployment directory. It replaces the
+Compose file and documentation but does not contain `.env`; the Docker volumes are also preserved.
+
+```bash
+curl -fLO https://github.com/KurisuT7/Telegram2OneDrive/releases/latest/download/telegram2onedrive.tar.gz
+curl -fLO https://github.com/KurisuT7/Telegram2OneDrive/releases/latest/download/SHA256SUMS
+sha256sum --check SHA256SUMS
+tar -xzf telegram2onedrive.tar.gz --strip-components=1
+docker compose pull
+docker compose up -d
+rm telegram2onedrive.tar.gz SHA256SUMS
+```
+
+To roll back, replace `v0.2.0` below with the required release. Each release bundle pins the exact
+container-image digest built for that release.
+
+```bash
+RELEASE=v0.2.0
+curl -fLO "https://github.com/KurisuT7/Telegram2OneDrive/releases/download/${RELEASE}/telegram2onedrive.tar.gz"
+curl -fLO "https://github.com/KurisuT7/Telegram2OneDrive/releases/download/${RELEASE}/SHA256SUMS"
+sha256sum --check SHA256SUMS
+tar -xzf telegram2onedrive.tar.gz --strip-components=1
+docker compose pull
+docker compose up -d
+rm telegram2onedrive.tar.gz SHA256SUMS
 ```
 
 rclone configuration and the MTProto session live in the `rclone-config` and `telegram-state`
@@ -160,7 +191,7 @@ the container; `docker compose restart` alone does not load changed environment 
 - [MTProto large-file mode](docs/mtproto.md)
 - [Local Bot API Server](docs/local-bot-api.md)
 - [Native Linux installation](docs/native-linux.md)
-- [Contributing](CONTRIBUTING.md)
+- [Contributing](https://github.com/KurisuT7/Telegram2OneDrive/blob/main/CONTRIBUTING.md)
 - [Changelog](CHANGELOG.md)
 
 Report security issues through [GitHub private vulnerability reporting](SECURITY.md).

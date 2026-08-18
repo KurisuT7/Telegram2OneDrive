@@ -6,8 +6,14 @@ User-visible changes are recorded here. The format is based on
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-18
+
 ### Added
 
+- A prebuilt Linux container image for AMD64 and ARM64, plus a checksum-protected runtime bundle
+  containing only the Compose deployment, configuration example, license, and user documentation.
+- A tag-triggered release workflow that validates the release version, publishes the image, pins the
+  runtime bundle to its manifest digest, and prepares a draft GitHub release for review.
 - A Docker Compose deployment with a non-root application image, bundled rclone and MTProto
   dependencies, persistent credential/session volumes, and container build validation in CI.
 - An optional Pyrogram MTProto fallback for files above the cloud Bot API's 20 MiB boundary, up to
@@ -18,6 +24,8 @@ User-visible changes are recorded here. The format is based on
 
 ### Changed
 
+- Docker Compose now pulls the published image for end users. Local image builds remain available
+  through a separate contributor override.
 - Reworked the English and Chinese documentation around one Docker Compose quick start, with native
   Linux deployment and advanced download backends kept in focused guides.
 - The command now loads `.env` from the current directory automatically. Enabling MTProto also
@@ -47,5 +55,6 @@ User-visible changes are recorded here. The format is based on
 - Bot tokens, rclone configuration, sessions, downloaded files, and runtime data are excluded from
   the repository.
 
-[Unreleased]: https://github.com/KurisuT7/Telegram2OneDrive/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/KurisuT7/Telegram2OneDrive/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/KurisuT7/Telegram2OneDrive/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/KurisuT7/Telegram2OneDrive/releases/tag/v0.1.0

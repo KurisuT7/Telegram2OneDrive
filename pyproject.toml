@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "telegram2onedrive"
-version = "0.1.0"
+version = "0.2.0"
 description = "Transfer files from an allowlisted Telegram bot to categorized OneDrive folders."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -61,6 +61,8 @@ include = [
     "/deploy",
     "/Dockerfile",
     "/compose.yaml",
+    "/compose.build.yaml",
+    "/scripts",
     "/.dockerignore",
     "/.env.example",
     "/CHANGELOG.md",
