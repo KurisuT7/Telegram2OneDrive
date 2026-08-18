@@ -82,7 +82,7 @@ jobs:
             --tag "$GITHUB_REF_NAME" \
             --image-ref "${IMAGE_NAME}@${{ steps.image.outputs.digest }}" \
             --output-dir dist
-          sha256sum --check dist/SHA256SUMS
+          (cd dist && sha256sum --check SHA256SUMS)
           mkdir "$RUNNER_TEMP/runtime-bundle"
           tar -xzf dist/telegram2onedrive.tar.gz \
             -C "$RUNNER_TEMP/runtime-bundle" --strip-components=1
